@@ -1,0 +1,38 @@
+cargo-features = [
+    'strip',
+    "named-profiles",
+]
+
+[package]
+name = 'sysprog_compiler'
+version = '0.1.0'
+authors = ['Florian Zier <9168602+zierf@users.noreply.github.com>']
+repository = "https://github.com/zierf/sysprog_compiler"
+edition = '2018'
+#build = 'build.rs'
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[profile.release]
+debug = false
+debug-assertions = false
+overflow-checks = false
+incremental = false
+codegen-units = 16
+strip = 'symbols'
+opt-level = 3
+lto = true
+
+## https://github.com/johnthagen/min-sized-rust
+[profile.release-size]
+inherits = "release"
+codegen-units = 1
+panic = 'abort'
+opt-level = 'z'
+
+[dependencies]
+
+[dev-dependencies]

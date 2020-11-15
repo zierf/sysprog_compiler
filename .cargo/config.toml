@@ -1,0 +1,24 @@
+[term]
+verbose = false
+color = 'auto'
+
+[unstable]
+multitarget = true
+
+#[build]
+#target = 'x86_64-unknown-linux-gnu'
+#target = 'x86_64-pc-windows-gnu'
+
+## Debian: clang lldb lld clangd
+[target.x86_64-unknown-linux-gnu]
+#linker = 'x86_64-unknown-linux-gnu-gcc'
+#linker = '/usr/lib/llvm-12/bin/ld.lld'
+#linker = 'gcc'
+linker = 'clang'
+rustflags = ['-C', 'link-arg=-fuse-ld=lld']
+
+## Debian: mingw-w64
+[target.x86_64-pc-windows-gnu]
+#linker = 'x86_64-pc-windows-gnu-gcc'
+#linker = '/usr/lib/llvm-12/bin/lld-link'
+linker = 'x86_64-w64-mingw32-gcc'
