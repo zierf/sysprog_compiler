@@ -40,6 +40,8 @@ where
     /// Takes any type implementing the `Read` trait
     /// like an instance of a `File`.
     ///
+    /// Chunk size has to be at least one or greater.
+    ///
     /// ```no_run
     /// use sysprog_compiler::CharBuffer;
     /// use std::fs::File;
@@ -48,6 +50,10 @@ where
     /// let mut reader = CharBuffer::new(file, 4096);
     /// ```
     pub fn new(source: R, chunk_size: usize) -> CharBuffer<R> {
+        if chunk_size < 1 {
+            panic!("The block size must be greater than or equal to one!");
+        }
+
         let buffer_left = vec![0; chunk_size];
         let buffer_right = vec![0; chunk_size];
 
@@ -233,20 +239,197 @@ where
         };
 
         fmt.debug_struct("CharBuffer")
-            .field("source", &self.source.borrow())
-            .field("left", &format!("{:X?}", &self.buffer_left))
-            .field("right", &format!("{:X?}", &self.buffer_right))
-            .field("position", &format_args!("{}/{}", position, self.capacity()))
+            .field("source", &format!("{:?}", &self.source.borrow()))
+            .field("left", &format!("{:02X?}", &self.buffer_left))
+            .field("right", &format!("{:02X?}", &self.buffer_right))
+            .field("position", &format_args!("{} ({})", position, self.capacity()))
             .finish()
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    fn create_ascii_string() -> std::string::String {
+        let mut input = String::new();
+        input.push('\n');
+
+        for keycode in 32..=126 {
+            input.push(std::char::from_u32(keycode).unwrap());
+        }
+
+        input
+    }
 
     #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
+    fn create_buffer() {
+        let input = std::io::empty();
+        CharBuffer::new(input, 32);
+    }
+
+    #[test]
+    #[should_panic(expected = "The block size must be greater than or equal to one!")]
+    fn chunk_size_zero() {
+        let input = std::io::empty();
+        CharBuffer::new(input, 0);
+    }
+
+    #[test]
+    fn get_capacity() {
+        let mut i = 1;
+
+        while i <= 4096 {
+            let input = std::io::empty();
+            assert_eq!(CharBuffer::new(input, i).capacity(), (i * 2));
+            i *= 2;
+        }
+    }
+
+    #[test]
+    fn format_debug() {
+        let input = std::io::empty();
+        let reader = CharBuffer::new(input, 32);
+        format!("Buffer {:#?}\n", reader);
+    }
+
+    #[test]
+    fn take_bytes() {
+        let input = create_ascii_string();
+        let mut reader = CharBuffer::new(input.as_bytes(), 8);
+
+        for input_char in input.chars() {
+            let byte = reader.take_byte().unwrap();
+            assert_eq!(byte as char, input_char);
+        }
+    }
+
+    #[test]
+    fn take_chars() {
+        let input = create_ascii_string();
+        let mut reader = CharBuffer::new(input.as_bytes(), 8);
+
+        for input_char in input.chars() {
+            let character = reader.take_char().unwrap();
+            assert_eq!(character, input_char);
+        }
+    }
+
+    #[test]
+    fn take_back_characters() {
+        let input = create_ascii_string();
+        let mut reader = CharBuffer::new(input.as_bytes(), 8);
+
+        // cosnume one and take it back
+        reader.take_char().unwrap();
+        reader.take_back(1).unwrap();
+
+        // consume the first eight characters (position 0-7)
+        for _i in 0..8 {
+            reader.take_char().unwrap();
+        }
+
+        reader.take_back(8).unwrap();
+
+        // consume the first eight characters again
+        for i in 0..8 {
+            assert_eq!(input.chars().nth(i).unwrap(), reader.take_char().unwrap());
+        }
+
+        // jump into right chunk (position 8) and go back in left half
+        reader.take_char().unwrap();
+        reader.take_back(8).unwrap();
+
+        for i in 0..8 {
+            assert_eq!(input.chars().nth(i + 1).unwrap(), reader.take_char().unwrap());
+        }
+
+        // jump into left chunk again (position 0)
+        for _i in 0..8 {
+            reader.take_char().unwrap();
+        }
+
+        reader.take_back(8).unwrap();
+
+        for i in 0..8 {
+            // position 8 was already consumed, continue with 9th in reference string
+            assert_eq!(input.chars().nth(i + 9).unwrap(), reader.take_char().unwrap());
+        }
+    }
+
+    #[test]
+    fn take_back_too_many() {
+        let input = create_ascii_string();
+        let mut reader = CharBuffer::new(input.as_bytes(), 8);
+
+        // not enough consumed
+        assert_eq!(reader.take_back(1).unwrap_err().kind(), io::ErrorKind::PermissionDenied);
+
+        // consume some characters
+        for _i in 0..8 {
+            reader.take_char().unwrap();
+        }
+
+        // taking back more than a chunk can contain (in one step)
+        assert_eq!(reader.take_back(9).unwrap_err().kind(), io::ErrorKind::PermissionDenied);
+
+        // taking back more than a chunk can contain (in multiple steps)
+        for _i in (0..8).rev() {
+            reader.take_back(1).unwrap();
+        }
+
+        assert_eq!(reader.take_back(1).unwrap_err().kind(), io::ErrorKind::PermissionDenied);
+    }
+
+    #[test]
+    fn read_ascii() {
+        let input = create_ascii_string();
+
+        let mut reader = CharBuffer::new(input.as_bytes(), 8);
+
+        while let Ok(character) = reader.take_char() {
+            assert!(character.is_ascii());
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "Not a valid ASCII character!")]
+    fn read_utf8() {
+        let input = "çêéèÇÉÈÊ".as_bytes();
+        let mut reader = CharBuffer::new(input, 8);
+
+        reader.take_char().unwrap();
+    }
+
+    #[test]
+    fn read_small_file() {
+        let file = std::fs::File::open("tests/buffer/input.txt").unwrap();
+
+        let mut characters = String::new();
+        let mut reader = CharBuffer::new(file, 8);
+
+        while let Ok(character) = reader.take_char() {
+            characters.push(character);
+        }
+
+        assert_eq!(characters, String::from("abcdefghijklmno\nABCDEFGHIJKLMNO\n012345\n"));
+    }
+
+    #[test]
+    fn read_big_file() {
+        let bible_path = "tests/buffer/bible.txt";
+        let bible_text: String = std::fs::read_to_string(bible_path).unwrap().parse().unwrap();
+
+        let mut characters = String::new();
+
+        let file = std::fs::File::open(bible_path).unwrap();
+        let mut reader = CharBuffer::new(file, 4096);
+
+        while let Ok(character) = reader.take_char() {
+            characters.push(character);
+        }
+
+        assert_eq!(characters, bible_text);
     }
 
 }

@@ -18,7 +18,7 @@ fn main() -> std::io::Result<()> {
 
     for _i in (0..16).rev() {
         let byte = reader.take_byte()?;
-        println!("{:#X?}", byte);
+        println!("{:#04X?}", byte);
     }
 
     println!("Take back!");
@@ -32,3 +32,6 @@ fn main() -> std::io::Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {}
