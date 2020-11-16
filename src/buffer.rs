@@ -4,6 +4,18 @@ use std::io::prelude::Read;
 use std::io;
 use std::cell::RefCell;
 
+
+/// Chunk data for left and right half of a Buffer.
+#[derive(Debug)]
+struct Chunks {
+    /// Size of one half.
+    size: usize,
+    /// Left half of the buffer.
+    left: Box<[u8]>,
+    /// Right half of the buffer.
+    right: Box<[u8]>,
+}
+
 /// Buffer for consuming single characters.
 /// Can take any Type with the `Read` trait as source.
 ///
@@ -12,23 +24,15 @@ use std::cell::RefCell;
 pub struct CharBuffer<R> {
     /// Readable source to buffer.
     source: RefCell<R>,
-    /// Left half of the buffer.
-    buffer_left: Box<[u8]>,
-    /// Right half of the buffer.
-    buffer_right: Box<[u8]>,
-    /// Size of one half.
-    chunk_size: usize,
-    /// Flag, if characters were taken back across the halves.
-    back_half: bool,
-    /// Number of characters withdrawn.
-    withdrawn: usize,
-    /// Position within the entire buffer.
-    position: usize,
+    /// Buffer consisting of two chunks (left and right half).
+    chunks: Chunks,
     /// Amount of consumed characters.
     consumed: usize,
     /// Total number of characters read.
-    /// Increases as long as more characters can be read.
-    end: usize,
+    /// Increases while reading more characters.
+    loaded: usize,
+    /// Number of characters withdrawn.
+    withdrawn: usize,
 }
 
 impl<R> CharBuffer<R>
@@ -59,28 +63,43 @@ where
 
         CharBuffer {
             source: RefCell::new(source),
-            buffer_left: buffer_left.into_boxed_slice(),
-            buffer_right: buffer_right.into_boxed_slice(),
-            back_half: false,
-            withdrawn: 0,
-            chunk_size,
-            position: chunk_size * 2, // resetting before first take
+            chunks: Chunks {
+                size: chunk_size,
+                left: buffer_left.into_boxed_slice(),
+                right: buffer_right.into_boxed_slice(),
+            },
             consumed: 0,
-            end: 0,
+            loaded: 0,
+            withdrawn: 0,
         }
     }
 
     /// Loads the next chunk.
     /// Fills the other half, depending on the current position.
-    fn read_chunk(&mut self) -> io::Result<usize> {
-        let mut handle = self.source.get_mut().take(self.chunk_size as u64);
+    fn load_chunk(&mut self) -> io::Result<usize> {
+        let position = self.position();
 
-        let loaded = match self.position {
-            x if x < self.chunk_size => handle.read(&mut self.buffer_right)?,
-            _                        => handle.read(&mut self.buffer_left)?,
+        let mut handle = self.source.get_mut().take(self.chunks.size as u64);
+
+        let loaded = match position {
+            x if x < self.chunks.size => handle.read(&mut self.chunks.left)?,
+            _                         => handle.read(&mut self.chunks.right)?,
         };
 
         Result::Ok(loaded)
+    }
+
+    /// Read a specific position from buffer.
+    fn read_position(&mut self, position: usize) -> io::Result<u8> {
+        if position >= self.capacity() {
+            return io::Result::Err(io::Error::new(io::ErrorKind::NotFound, "The specified position is greater than the capacity of the buffer!!"));
+        }
+
+        if self.position() < self.chunks.size {
+            io::Result::Ok(self.chunks.left[position])
+        } else {
+            io::Result::Ok(self.chunks.right[position % self.chunks.size])
+        }
     }
 
     /// Reads the next byte from the buffer.
@@ -95,39 +114,24 @@ where
     /// }
     /// ```
     pub fn take_byte(&mut self) -> io::Result<u8> {
-        if self.position < self.chunk_size && (self.position + 1) >= self.chunk_size {
-            if !self.back_half {
-                self.end += self.read_chunk()?;
-            } else {
-                self.back_half = false;
-            }
-            self.position += 1;
-        } else if (self.position + 1) >= self.capacity() {
-            if !self.back_half {
-                self.end += self.read_chunk()?;
-            } else {
-                self.back_half = false;
-            }
-            self.position = 0;
-        } else if self.consumed < self.end {
-            self.position += 1;
+        let position = self.position();
+
+        if (self.withdrawn == 0) && (position == 0 || position == self.chunks.size) {
+            self.loaded += self.load_chunk()?;
         }
 
-        if self.consumed >= self.end {
+        if self.consumed >= self.loaded {
             return io::Result::Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Reached end of Buffer!"));
         }
-
-        self.consumed +=1;
 
         if self.withdrawn > 0 {
             self.withdrawn -= 1;
         }
 
-        if self.position < self.chunk_size {
-            io::Result::Ok(self.buffer_left[self.position])
-        } else {
-            io::Result::Ok(self.buffer_right[self.position % self.chunk_size])
-        }
+        let byte = self.read_position(position)?;
+
+        self.consumed +=1;
+        io::Result::Ok(byte)
     }
 
     /// Reads the next byte as character from the buffer.
@@ -154,6 +158,11 @@ where
 }
 
 impl<R> CharBuffer<R> {
+    /// Returns the current position across both buffer chunks.
+    pub fn position(&self) -> usize {
+        self.consumed % self.capacity()
+    }
+
     /// Returns the total capacity of the buffer.
     ///
     /// ```
@@ -163,7 +172,7 @@ impl<R> CharBuffer<R> {
     /// println!("{}", reader.capacity());
     /// ```
     pub fn capacity(&self) -> usize {
-        self.chunk_size * 2
+        self.chunks.size * 2
     }
 
     /// Takes back the specified number of characters.
@@ -191,30 +200,24 @@ impl<R> CharBuffer<R> {
     /// # }
     /// ```
     pub fn take_back(&mut self, amount: usize) -> io::Result<usize> {
-        if amount > self.chunk_size {
-            return io::Result::Err(io::Error::new(io::ErrorKind::PermissionDenied, "Can not take back more characters than the size of a chunk!"));
-        } else if amount > self.consumed {
+        let message_too_many = "Can not take back more characters than the size of a chunk!";
+
+        if amount > self.consumed {
             return io::Result::Err(io::Error::new(io::ErrorKind::PermissionDenied, "Can not take back more characters than already consumed!"));
+        } else if amount > self.chunks.size {
+            return io::Result::Err(io::Error::new(io::ErrorKind::PermissionDenied, message_too_many));
         }
 
         for _ in (0..amount).rev() {
-            if (self.withdrawn + 1) > self.chunk_size {
-                return io::Result::Err(io::Error::new(io::ErrorKind::PermissionDenied, "Can not take back more characters than the size of a chunk!"));
+            if (self.withdrawn + 1) > self.chunks.size {
+                return io::Result::Err(io::Error::new(io::ErrorKind::PermissionDenied, message_too_many));
             }
 
-            if self.position == 0 {
-                self.position = self.capacity();
-                self.back_half = true;
-            } else if self.position == self.chunk_size {
-                self.back_half = true;
-            }
-
-            self.withdrawn += 1;
             self.consumed -= 1;
-            self.position -= 1;
+            self.withdrawn += 1;
         }
 
-        io::Result::Ok(self.position)
+        io::Result::Ok(self.position())
     }
 
 }
@@ -232,17 +235,11 @@ where
     /// println!("Buffer {:#?}\n", reader);
     /// ```
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let position = if self.position < self.capacity() {
-            self.position
-        } else {
-            0
-        };
-
         fmt.debug_struct("CharBuffer")
             .field("source", &format!("{:?}", &self.source.borrow()))
-            .field("left", &format!("{:02X?}", &self.buffer_left))
-            .field("right", &format!("{:02X?}", &self.buffer_right))
-            .field("position", &format_args!("{} ({})", position, self.capacity()))
+            .field("left", &format!("{:02X?}", &self.chunks.left))
+            .field("right", &format!("{:02X?}", &self.chunks.right))
+            .field("position", &format_args!("{} ({} Positions)", self.position(), self.capacity()))
             .finish()
     }
 }
@@ -251,6 +248,8 @@ where
 mod tests {
     use super::*;
 
+    /// Create a string with printable ASCII characters.
+    /// Also contains the linebreak.
     fn create_ascii_string() -> std::string::String {
         let mut input = String::new();
         input.push('\n');
@@ -269,7 +268,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "The block size must be greater than or equal to one!")]
+    #[should_panic]
     fn chunk_size_zero() {
         let input = std::io::empty();
         CharBuffer::new(input, 0);
@@ -316,11 +315,11 @@ mod tests {
     }
 
     #[test]
-    fn take_back_characters() {
+    fn take_back_chars() {
         let input = create_ascii_string();
         let mut reader = CharBuffer::new(input.as_bytes(), 8);
 
-        // cosnume one and take it back
+        // consume one and take it back
         reader.take_char().unwrap();
         reader.take_back(1).unwrap();
 
@@ -393,7 +392,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Not a valid ASCII character!")]
+    #[should_panic]
     fn read_utf8() {
         let input = "çêéèÇÉÈÊ".as_bytes();
         let mut reader = CharBuffer::new(input, 8);
