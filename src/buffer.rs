@@ -246,7 +246,10 @@ where
 
 #[cfg(test)]
 mod tests {
+    extern crate test;
+
     use super::*;
+    use test::Bencher;
 
     /// Create a string with printable ASCII characters.
     /// Also contains the linebreak.
@@ -404,8 +407,8 @@ mod tests {
     fn read_small_file() {
         let file = std::fs::File::open("tests/buffer/input.txt").unwrap();
 
-        let mut characters = String::new();
         let mut reader = CharBuffer::new(file, 8);
+        let mut characters = String::new();
 
         while let Ok(character) = reader.take_char() {
             characters.push(character);
@@ -419,16 +422,44 @@ mod tests {
         let bible_path = "tests/buffer/bible.txt";
         let bible_text: String = std::fs::read_to_string(bible_path).unwrap().parse().unwrap();
 
-        let mut characters = String::new();
-
         let file = std::fs::File::open(bible_path).unwrap();
         let mut reader = CharBuffer::new(file, 4096);
+
+        let mut characters = String::new();
 
         while let Ok(character) = reader.take_char() {
             characters.push(character);
         }
 
         assert_eq!(characters, bible_text);
+    }
+
+    #[bench]
+    fn bench_bible_std(bencher: &mut Bencher) {
+        let bible_path = "tests/buffer/bible.txt";
+        bencher.iter(|| {
+            let bible_text: String = std::fs::read_to_string(bible_path).unwrap().parse().unwrap();
+
+            bible_text
+        });
+    }
+
+    #[bench]
+    fn bench_bible_charbuffer(bencher: &mut Bencher) {
+        let bible_path = "tests/buffer/bible.txt";
+
+        bencher.iter(|| {
+            let file = std::fs::File::open(bible_path).unwrap();
+            let mut reader = CharBuffer::new(file, 4096);
+
+            let mut characters = String::new();
+
+            while let Ok(character) = reader.take_char() {
+                characters.push(character);
+            }
+
+            characters
+        });
     }
 
 }
