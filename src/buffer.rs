@@ -84,19 +84,6 @@ where
         Result::Ok(loaded)
     }
 
-    /// Read a specific position from buffer.
-    fn read_position(&mut self, position: usize) -> io::Result<u8> {
-        if position >= self.capacity() {
-            return io::Result::Err(io::Error::new(io::ErrorKind::NotFound, "The specified position is greater than the capacity of the buffer!!"));
-        }
-
-        if self.position() < self.chunks.size {
-            io::Result::Ok(self.chunks.left[position])
-        } else {
-            io::Result::Ok(self.chunks.right[position % self.chunks.size])
-        }
-    }
-
     /// Reads the next byte from the buffer.
     ///
     /// ```
@@ -119,13 +106,14 @@ where
             return io::Result::Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Reached end of Buffer!"));
         }
 
+        let byte = self.get_position(position)?;
+
+        self.consumed +=1;
+
         if self.withdrawn > 0 {
             self.withdrawn -= 1;
         }
 
-        let byte = self.read_position(position)?;
-
-        self.consumed +=1;
         io::Result::Ok(byte)
     }
 
@@ -168,6 +156,19 @@ impl<R> CharBuffer<R> {
     /// ```
     pub fn capacity(&self) -> usize {
         self.chunks.size * 2
+    }
+
+    /// Read a specific position from buffer.
+    fn get_position(&mut self, position: usize) -> io::Result<u8> {
+        if position >= self.capacity() {
+            return io::Result::Err(io::Error::new(io::ErrorKind::NotFound, "The specified position is greater than the capacity of the buffer!!"));
+        }
+
+        if self.position() < self.chunks.size {
+            io::Result::Ok(self.chunks.left[position])
+        } else {
+            io::Result::Ok(self.chunks.right[position % self.chunks.size])
+        }
     }
 
     /// Takes back the specified number of characters.
