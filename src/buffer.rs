@@ -2,7 +2,6 @@
 
 use std::io::prelude::Read;
 use std::io;
-use std::cell::RefCell;
 
 
 /// Chunk data for left and right half of a Buffer.
@@ -23,7 +22,7 @@ struct Chunks {
 /// already read characters (up to the size of a chunk).
 pub struct CharBuffer<R> {
     /// Readable source to buffer.
-    source: RefCell<R>,
+    inner: R,
     /// Buffer consisting of two chunks (left and right half).
     chunks: Chunks,
     /// Amount of consumed characters.
@@ -62,7 +61,7 @@ where
         let buffer_right = vec![0; chunk_size];
 
         CharBuffer {
-            source: RefCell::new(source),
+            inner: source,
             chunks: Chunks {
                 size: chunk_size,
                 left: buffer_left.into_boxed_slice(),
@@ -77,13 +76,9 @@ where
     /// Loads the next chunk.
     /// Fills the other half, depending on the current position.
     fn load_chunk(&mut self) -> io::Result<usize> {
-        let position = self.position();
-
-        let mut handle = self.source.get_mut().take(self.chunks.size as u64);
-
-        let loaded = match position {
-            x if x < self.chunks.size => handle.read(&mut self.chunks.left)?,
-            _                         => handle.read(&mut self.chunks.right)?,
+        let loaded = match self.position() {
+            x if x < self.chunks.size => self.inner.read(&mut self.chunks.left)?,
+            _                         => self.inner.read(&mut self.chunks.right)?,
         };
 
         Result::Ok(loaded)
@@ -236,7 +231,7 @@ where
     /// ```
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fmt.debug_struct("CharBuffer")
-            .field("source", &format!("{:?}", &self.source.borrow()))
+            .field("source", &format!("{:?}", &self.inner))
             .field("left", &format!("{:02X?}", &self.chunks.left))
             .field("right", &format!("{:02X?}", &self.chunks.right))
             .field("position", &format_args!("{} ({} Positions)", self.position(), self.capacity()))
@@ -401,6 +396,14 @@ mod tests {
         let mut reader = CharBuffer::new(input, 8);
 
         reader.take_char().unwrap();
+    }
+
+    #[test]
+    fn read_empty() {
+        let input = "".as_bytes();
+        let mut reader = CharBuffer::new(input, 8);
+
+        assert_eq!(reader.take_char().unwrap_err().kind(), io::ErrorKind::UnexpectedEof);
     }
 
     #[test]
