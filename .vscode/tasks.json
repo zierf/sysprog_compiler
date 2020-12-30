@@ -8,10 +8,7 @@
 			"problemMatcher": [
 				"$rustc"
 			],
-			"group": {
-				"kind": "build",
-				"isDefault": true
-			}
+			"group": "build"
 		},
 		{
 			"label": "Cargo: Build program",
@@ -20,7 +17,10 @@
 			"problemMatcher": [
 				"$rustc"
 			],
-			"group": "build"
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			}
 		},
 		{
 			"label": "Cargo: Check package and dependencies",
