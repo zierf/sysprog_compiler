@@ -1,8 +1,7 @@
 //! Simple buffer to consume single characters.
 
-use std::io::prelude::Read;
 use std::io;
-
+use std::io::prelude::Read;
 
 /// Chunk data for left and right half of a Buffer.
 #[derive(Debug)]
@@ -36,7 +35,7 @@ pub struct CharBuffer<R> {
 
 impl<R> CharBuffer<R>
 where
-    R: Read
+    R: Read,
 {
     /// Create a new Buffer.
     ///
@@ -78,7 +77,7 @@ where
     fn load_chunk(&mut self) -> io::Result<usize> {
         let loaded = match self.position() {
             x if x < self.chunks.size => self.inner.read(&mut self.chunks.left)?,
-            _                         => self.inner.read(&mut self.chunks.right)?,
+            _ => self.inner.read(&mut self.chunks.right)?,
         };
 
         Result::Ok(loaded)
@@ -103,12 +102,15 @@ where
         }
 
         if self.consumed >= self.loaded {
-            return io::Result::Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Reached end of Buffer!"));
+            return io::Result::Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "Reached end of Buffer!",
+            ));
         }
 
         let byte = self.get_position(position)?;
 
-        self.consumed +=1;
+        self.consumed += 1;
 
         if self.withdrawn > 0 {
             self.withdrawn -= 1;
@@ -133,7 +135,10 @@ where
         let byte = self.take_byte()?;
 
         if !byte.is_ascii() {
-            return io::Result::Err(io::Error::new(io::ErrorKind::InvalidInput, "Not a valid ASCII character!"));
+            return io::Result::Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Not a valid ASCII character!",
+            ));
         }
 
         io::Result::Ok(byte as char)
@@ -161,7 +166,10 @@ impl<R> CharBuffer<R> {
     /// Read a specific position from buffer.
     fn get_position(&mut self, position: usize) -> io::Result<u8> {
         if position >= self.capacity() {
-            return io::Result::Err(io::Error::new(io::ErrorKind::NotFound, "The specified position is greater than the capacity of the buffer!!"));
+            return io::Result::Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "The specified position is greater than the capacity of the buffer!!",
+            ));
         }
 
         if self.position() < self.chunks.size {
@@ -199,14 +207,23 @@ impl<R> CharBuffer<R> {
         let message_too_many = "Can not take back more characters than the size of a chunk!";
 
         if amount > self.consumed {
-            return io::Result::Err(io::Error::new(io::ErrorKind::PermissionDenied, "Can not take back more characters than already consumed!"));
+            return io::Result::Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Can not take back more characters than already consumed!",
+            ));
         } else if amount > self.chunks.size {
-            return io::Result::Err(io::Error::new(io::ErrorKind::PermissionDenied, message_too_many));
+            return io::Result::Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                message_too_many,
+            ));
         }
 
         for _ in (0..amount).rev() {
             if (self.withdrawn + 1) > self.chunks.size {
-                return io::Result::Err(io::Error::new(io::ErrorKind::PermissionDenied, message_too_many));
+                return io::Result::Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    message_too_many,
+                ));
             }
 
             self.consumed -= 1;
@@ -215,12 +232,11 @@ impl<R> CharBuffer<R> {
 
         io::Result::Ok(self.position())
     }
-
 }
 
 impl<R> std::fmt::Debug for CharBuffer<R>
 where
-    R: std::fmt::Debug
+    R: std::fmt::Debug,
 {
     /// Format an output for debugging.
     ///
@@ -235,7 +251,10 @@ where
             .field("source", &format!("{:?}", &self.inner))
             .field("left", &format!("{:02X?}", &self.chunks.left))
             .field("right", &format!("{:02X?}", &self.chunks.right))
-            .field("position", &format_args!("{} ({} Positions)", self.position(), self.capacity()))
+            .field(
+                "position",
+                &format_args!("{} ({} Positions)", self.position(), self.capacity()),
+            )
             .finish()
     }
 }
@@ -339,7 +358,10 @@ mod tests {
         reader.take_back(8).unwrap();
 
         for i in 0..8 {
-            assert_eq!(input.chars().nth(i + 1).unwrap(), reader.take_char().unwrap());
+            assert_eq!(
+                input.chars().nth(i + 1).unwrap(),
+                reader.take_char().unwrap()
+            );
         }
 
         // jump into left chunk again (position 0)
@@ -351,7 +373,10 @@ mod tests {
 
         for i in 0..8 {
             // position 8 was already consumed, continue with 9th in reference string
-            assert_eq!(input.chars().nth(i + 9).unwrap(), reader.take_char().unwrap());
+            assert_eq!(
+                input.chars().nth(i + 9).unwrap(),
+                reader.take_char().unwrap()
+            );
         }
     }
 
@@ -361,7 +386,10 @@ mod tests {
         let mut reader = CharBuffer::new(input.as_bytes(), 8);
 
         // not enough consumed
-        assert_eq!(reader.take_back(1).unwrap_err().kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(
+            reader.take_back(1).unwrap_err().kind(),
+            io::ErrorKind::PermissionDenied
+        );
 
         // consume some characters
         for _i in 0..8 {
@@ -369,14 +397,20 @@ mod tests {
         }
 
         // taking back more than a chunk can contain (in one step)
-        assert_eq!(reader.take_back(9).unwrap_err().kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(
+            reader.take_back(9).unwrap_err().kind(),
+            io::ErrorKind::PermissionDenied
+        );
 
         // taking back more than a chunk can contain (in multiple steps)
         for _i in (0..8).rev() {
             reader.take_back(1).unwrap();
         }
 
-        assert_eq!(reader.take_back(1).unwrap_err().kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(
+            reader.take_back(1).unwrap_err().kind(),
+            io::ErrorKind::PermissionDenied
+        );
     }
 
     #[test]
@@ -404,7 +438,10 @@ mod tests {
         let input = "".as_bytes();
         let mut reader = CharBuffer::new(input, 8);
 
-        assert_eq!(reader.take_char().unwrap_err().kind(), io::ErrorKind::UnexpectedEof);
+        assert_eq!(
+            reader.take_char().unwrap_err().kind(),
+            io::ErrorKind::UnexpectedEof
+        );
     }
 
     #[test]
@@ -418,13 +455,19 @@ mod tests {
             characters.push(character);
         }
 
-        assert_eq!(characters, String::from("abcdefghijklmno\nABCDEFGHIJKLMNO\n012345\n"));
+        assert_eq!(
+            characters,
+            String::from("abcdefghijklmno\nABCDEFGHIJKLMNO\n012345\n")
+        );
     }
 
     #[test]
     fn read_big_file() {
         let bible_path = "tests/buffer/bible.txt";
-        let bible_text: String = std::fs::read_to_string(bible_path).unwrap().parse().unwrap();
+        let bible_text: String = std::fs::read_to_string(bible_path)
+            .unwrap()
+            .parse()
+            .unwrap();
 
         let file = std::fs::File::open(bible_path).unwrap();
         let mut reader = CharBuffer::new(file, 4096);
@@ -442,7 +485,10 @@ mod tests {
     fn bench_bible_std(bencher: &mut Bencher) {
         let bible_path = "tests/buffer/bible.txt";
         bencher.iter(|| {
-            let bible_text: String = std::fs::read_to_string(bible_path).unwrap().parse().unwrap();
+            let bible_text: String = std::fs::read_to_string(bible_path)
+                .unwrap()
+                .parse()
+                .unwrap();
 
             bible_text
         });
@@ -465,5 +511,4 @@ mod tests {
             characters
         });
     }
-
 }

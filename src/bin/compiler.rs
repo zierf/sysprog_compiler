@@ -5,8 +5,8 @@
 //!
 //! A simple compiler reimplementation inspired by a former study project.
 
-use sysprog_compiler::CharBuffer;
 use std::fs::File;
+use sysprog_compiler::CharBuffer;
 
 /// Run the compiler.
 fn main() -> std::io::Result<()> {
