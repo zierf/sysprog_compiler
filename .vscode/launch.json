@@ -8,7 +8,7 @@
       "name": "Debug Default",
       "type": "lldb",
       "request": "launch",
-      "program": "${workspaceFolder}/target/debug/sysprog_compiler",
+      "program": "${workspaceFolder}/target/debug/compiler",
       "args": [],
       "cwd": "${workspaceFolder}"
     }
