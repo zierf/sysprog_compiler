@@ -52,7 +52,7 @@ where
     /// let file = File::open("input_file.txt").expect("Failed to open File!");
     /// let mut reader = CharBuffer::new(file, 4096);
     /// ```
-    pub fn new(source: R, chunk_size: usize) -> CharBuffer<R> {
+    pub fn new(source: R, chunk_size: usize) -> Self {
         if chunk_size < 1 {
             panic!("The block size must be greater than or equal to one!");
         }
@@ -60,7 +60,7 @@ where
         let buffer_left = vec![0; chunk_size];
         let buffer_right = vec![0; chunk_size];
 
-        CharBuffer {
+        Self {
             inner: source,
             chunks: Chunks {
                 size: chunk_size,
